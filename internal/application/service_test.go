@@ -17,7 +17,7 @@ func TestProjectAndBacklogLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	ctx := context.Background()
 	now := time.Date(2026, 8, 19, 8, 0, 0, 0, time.FixedZone("Asia/Jakarta", 7*3600))
 	projects := NewProjectService(db)
@@ -55,7 +55,7 @@ func TestMutationReceiptIsAtomicAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	ctx := context.Background()
 	calls := 0
 	fn := func(_ *sql.Tx) (any, error) { calls++; return map[string]string{"ok": "yes"}, nil }

@@ -87,7 +87,7 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	s := &Store{DB: db, Path: path}
 	if err = s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
@@ -200,7 +200,7 @@ func (s *Store) ListProjectsPage(ctx context.Context, archived bool, limit, offs
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []domain.Project
 	for rows.Next() {
 		var p domain.Project
@@ -337,7 +337,7 @@ func (s *Store) ListItemsPage(ctx context.Context, filter domain.ItemFilter, lim
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []domain.RecommendationItem
 	for rows.Next() {
 		var i domain.BacklogItem
@@ -565,7 +565,7 @@ func (s *Store) SnapshotNotification(ctx context.Context, date string, items []d
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var status string
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM notification_runs WHERE local_date=?`, date).Scan(&status); err != nil {
 		return err
@@ -600,7 +600,7 @@ func (s *Store) NotificationItems(ctx context.Context, date string) ([]Notificat
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []NotificationItem
 	for rows.Next() {
 		var item NotificationItem
@@ -617,7 +617,7 @@ func (s *Store) PendingNotificationParts(ctx context.Context, date string) ([]No
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []NotificationPart
 	for rows.Next() {
 		var p NotificationPart
@@ -670,7 +670,7 @@ func (s *Store) ReadOnlyIntegrity(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err = conn.ExecContext(ctx, `PRAGMA query_only=ON`); err != nil {
 		return err
 	}
@@ -695,8 +695,8 @@ func (s *Store) Backup(ctx context.Context, output string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	err = conn.Raw(func(raw any) error {
+	defer func() { _ = conn.Close() }()
+	err = conn.Raw(func(raw any) (err error) {
 		src, ok := raw.(interface {
 			NewBackup(string) (*moderncsqlite.Backup, error)
 		})
@@ -707,7 +707,11 @@ func (s *Store) Backup(ctx context.Context, output string) error {
 		if err != nil {
 			return err
 		}
-		defer backup.Finish()
+		defer func() {
+			if finishErr := backup.Finish(); err == nil {
+				err = finishErr
+			}
+		}()
 		for {
 			more, err := backup.Step(-1)
 			if err != nil {
@@ -732,7 +736,7 @@ func (s *Store) Backup(ctx context.Context, output string) error {
 		os.Remove(name)
 		return err
 	}
-	defer check.Close()
+	defer func() { _ = check.Close() }()
 	if err := check.Integrity(ctx); err != nil {
 		os.Remove(name)
 		return fmt.Errorf("backup integrity check: %w", err)

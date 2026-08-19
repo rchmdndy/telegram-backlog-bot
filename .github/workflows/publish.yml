@@ -78,19 +78,11 @@ jobs:
           printf '{"started_at":"%s","last_success_at":"%s"}' "$now" "$now" > /tmp/backlog-healthcheck/.heartbeat
           docker run --rm --user 10001:10001 -e HEARTBEAT_PATH=/data/.heartbeat -e DATABASE_PATH=/data/backlog.db -v /tmp/backlog-healthcheck:/data backlog-bot:amd64 healthcheck
       - name: Scan architecture builds before publish
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2
-        with:
-          image-ref: backlog-bot:amd64
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: 1
-      - name: Scan arm64 architecture build before publish
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2
-        with:
-          image-ref: backlog-bot:arm64
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: 1
+        run: |
+          set -eu
+          image='aquasec/trivy@sha256:5c59e08f980b5d4d503329773480fcea2c9bdad7e381d846fbf9f2ecb8050f6b'
+          docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock "$image" image --ignore-unfixed --severity CRITICAL,HIGH --exit-code 1 backlog-bot:amd64
+          docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock "$image" image --ignore-unfixed --severity CRITICAL,HIGH --exit-code 1 backlog-bot:arm64
       - name: Verify release aliases are immutable
         if: startsWith(github.ref, 'refs/tags/v')
         env:

@@ -50,11 +50,6 @@ jobs:
       - name: Build image
         run: docker build --tag backlog-bot:ci .
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2
-        with:
-          image-ref: backlog-bot:ci
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+        run: docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:5c59e08f980b5d4d503329773480fcea2c9bdad7e381d846fbf9f2ecb8050f6b image --ignore-unfixed --severity CRITICAL --exit-code 1 backlog-bot:ci
       - name: Compose config
         run: docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config

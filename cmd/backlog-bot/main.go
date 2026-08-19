@@ -188,7 +188,7 @@ func backup(args []string) int {
 	if err != nil {
 		return 1
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err = db.Backup(context.Background(), output); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1

@@ -1058,4 +1058,3 @@ func (b *Bot) deleteConfirmV2(ctx context.Context, p []string, updateID int64) e
 	}
 	return b.send("Backlog dihapus permanen.", menu())
 }
-

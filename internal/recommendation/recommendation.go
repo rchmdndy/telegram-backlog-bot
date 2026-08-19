@@ -51,14 +51,14 @@ func Render(items []domain.RecommendationItem, now time.Time) string {
 	var b strings.Builder
 	b.WriteString("☀️ <b>Selamat pagi! Fokus hari ini</b>\n")
 	b.WriteString(html.EscapeString(now.Format("02 January 2006")))
-	b.WriteString(fmt.Sprintf(" · %d backlog dipilih\n\n", len(items)))
+	_, _ = fmt.Fprintf(&b, " · %d backlog dipilih\n\n", len(items))
 	if len(items) == 0 {
 		return b.String() + "Belum ada backlog aktif yang direncanakan.\nTambahkan backlog atau buka daftar project untuk mulai.\n"
 	}
 	for _, group := range Group(items) {
 		b.WriteString("<b>📁 " + html.EscapeString(group[0].ProjectName) + "</b>\n")
 		for _, r := range group {
-			b.WriteString(fmt.Sprintf("%d. %s %s\n   %s\n", r.Ordinal, quadrantIcon(r.Item.Quadrant), html.EscapeString(r.Item.Title), deadlineLabel(r.Item.DeadlineDate, now)))
+			_, _ = fmt.Fprintf(&b, "%d. %s %s\n   %s\n", r.Ordinal, quadrantIcon(r.Item.Quadrant), html.EscapeString(r.Item.Title), deadlineLabel(r.Item.DeadlineDate, now))
 		}
 		b.WriteByte('\n')
 	}

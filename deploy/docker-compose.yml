@@ -1,0 +1,27 @@
+services:
+  bot:
+    image: ghcr.io/${GITHUB_OWNER:-rchmdndy}/${IMAGE_NAME:-telegram-backlog-bot}:${IMAGE_TAG:?set IMAGE_TAG}
+    restart: unless-stopped
+    user: "10001:10001"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_PATH: /data/backlog.db
+      BACKUP_DIR: /backups
+      HEARTBEAT_PATH: /data/.heartbeat
+    volumes:
+      - backlog-data:/data
+      - ./backups:/backups
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  backlog-data:

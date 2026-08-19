@@ -1,0 +1,143 @@
+name: Publish GHCR
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-qemu-action@53851d14592bedcffcf25ea515637cff71ef929a
+      - uses: docker/setup-buildx-action@6524bf65af31da8d45b59e8c27de4bd072b392f5
+      - uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Metadata
+        id: meta
+        uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=tag
+            type=raw,value={{tag lstrip=v}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Complete verification before image build
+        run: |
+          set -eu
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
+          go build -trimpath ./cmd/backlog-bot
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f431f3c
+        with:
+          version: v2.1.6
+      - name: Go vulnerability scan
+        uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee
+        with:
+          go-version-file: go.mod
+          go-package: ./...
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify stable semantic release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eu
+          printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+      - name: Build and smoke-test runnable architecture images
+        run: |
+          set -eu
+          docker build --platform linux/amd64 --tag backlog-bot:amd64 .
+          docker build --platform linux/arm64 --tag backlog-bot:arm64 .
+          mkdir -p /tmp/backlog-healthcheck
+          touch /tmp/backlog-healthcheck/backlog.db
+          chmod 666 /tmp/backlog-healthcheck/backlog.db
+          now=$(date -u +%FT%T.%NZ)
+          printf '{"started_at":"%s","last_success_at":"%s"}' "$now" "$now" > /tmp/backlog-healthcheck/.heartbeat
+          docker run --rm --user 10001:10001 -e HEARTBEAT_PATH=/data/.heartbeat -e DATABASE_PATH=/data/backlog.db -v /tmp/backlog-healthcheck:/data backlog-bot:amd64 healthcheck
+      - name: Scan architecture builds before publish
+        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2
+        with:
+          image-ref: backlog-bot:amd64
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+      - name: Scan arm64 architecture build before publish
+        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2
+        with:
+          image-ref: backlog-bot:arm64
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+      - name: Verify release aliases are immutable
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          set -eu
+          for tag in "${GITHUB_REF_NAME#v}" "${GITHUB_REF_NAME}"; do
+            if docker buildx imagetools inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+              echo "release alias already exists: $tag" >&2
+              exit 1
+            fi
+          done
+      - name: Build and publish
+        id: push
+        uses: docker/build-push-action@48aba3b46d1b1fec4febb7c5d0c644b249a11355
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+      - name: Attest provenance
+        uses: actions/attest-build-provenance@210c1913531870065f03ce1f9440dd87bc0938cd
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Verify aliases and summary
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -eu
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            resolved=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}' | tr -d '\r\n')
+            case "$resolved" in sha256:*) ;; *) echo "invalid digest for $tag: $resolved"; exit 1 ;; esac
+            test "$resolved" = "$DIGEST" || { echo "alias does not resolve to published digest: $tag"; exit 1; }
+          done <<< '${{ steps.meta.outputs.tags }}'
+      - name: Summary
+        run: |
+          {
+            echo '### Published image'
+            echo
+            echo '- digest: `${{ steps.push.outputs.digest }}`'
+            echo '- tags:'
+            echo '${{ steps.meta.outputs.tags }}' | sed 's/^/  - /'
+          } >> "$GITHUB_STEP_SUMMARY"

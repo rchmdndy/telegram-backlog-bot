@@ -80,11 +80,9 @@ jobs:
           [ "$host_arch" = amd64 ] && other_arch=arm64
           docker build --platform "linux/$other_arch" --tag "backlog-bot:$other_arch" .
           mkdir -p /tmp/backlog-healthcheck
-          chown 10001:10001 /tmp/backlog-healthcheck
-          chmod 700 /tmp/backlog-healthcheck
+          chmod 777 /tmp/backlog-healthcheck
           touch /tmp/backlog-healthcheck/backlog.db
-          chown 10001:10001 /tmp/backlog-healthcheck/backlog.db
-          chmod 600 /tmp/backlog-healthcheck/backlog.db
+          chmod 666 /tmp/backlog-healthcheck/backlog.db
           now=$(date -u +%FT%T.%NZ)
           printf '{"started_at":"%s","last_success_at":"%s"}' "$now" "$now" > /tmp/backlog-healthcheck/.heartbeat
           docker run --rm --user 10001:10001 -e HEARTBEAT_PATH=/data/.heartbeat -e DATABASE_PATH=/data/backlog.db -v /tmp/backlog-healthcheck:/data "backlog-bot:$host_arch" healthcheck

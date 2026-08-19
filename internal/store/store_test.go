@@ -46,7 +46,7 @@ func TestStoreCRUDAndPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if err = s.Integrity(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestBackupRestoreIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restored.Close()
+	defer func() { _ = restored.Close() }()
 	if err := restored.DB.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestBackupRestoreIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restored.Close()
+	defer func() { _ = restored.Close() }()
 	got, err := restored.GetProject(ctx, p.ID)
 	if err != nil || got.Name != p.Name {
 		t.Fatalf("restored project: %v %v", got, err)

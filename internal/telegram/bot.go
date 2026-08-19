@@ -399,22 +399,6 @@ func (b *Bot) callback(ctx context.Context, q *tgbotapi.CallbackQuery, updateID 
 		return b.send("Menu sudah kedaluwarsa. Buka menu terbaru.", menu())
 	*/
 }
-func (b *Bot) callbackProject(ctx context.Context, id string) error {
-	flow, _, raw, nonce, ver, _, err := b.db.GetState(ctx, b.userID)
-	if err != nil {
-		return err
-	}
-	if flow != "backlog" {
-		return b.send("Wizard sudah berubah. Buka menu terbaru.", menu())
-	}
-	if _, err = b.db.GetProject(ctx, id); err != nil {
-		return b.send("Project tidak ditemukan.", menu())
-	}
-	var d map[string]string
-	_ = json.Unmarshal([]byte(raw), &d)
-	d["project_id"] = id
-	return b.chooseQuadrant(ctx, d, nonce, ver+1)
-}
 func (b *Bot) callbackQuadrant(ctx context.Context, q domain.Quadrant) error {
 	if !domain.ValidQuadrant(q) {
 		return nil
@@ -848,7 +832,7 @@ func (b *Bot) notificationItems(ctx context.Context, date string) error {
 	text.WriteString("<b>Tandai Selesai — snapshot " + Escape(date) + "</b>\n")
 	keys := make([][]tgbotapi.InlineKeyboardButton, 0, len(items)+1)
 	for _, item := range items {
-		text.WriteString(fmt.Sprintf("%d. %s — %s\n", item.Ordinal, Escape(item.ProjectName), Escape(item.Title)))
+		_, _ = fmt.Fprintf(&text, "%d. %s — %s\n", item.Ordinal, Escape(item.ProjectName), Escape(item.Title))
 		if item.BacklogItemID != "" {
 			keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("✅ "+item.Title, "v2:complete:"+item.BacklogItemID+":"+callbackNonce())})
 		}
@@ -867,7 +851,7 @@ func (b *Bot) listPage(ctx context.Context, page int, filter domain.ItemFilter) 
 	s.WriteString("<b>Backlog aktif</b>\n")
 	keys := [][]tgbotapi.InlineKeyboardButton{}
 	for _, r := range items {
-		s.WriteString(fmt.Sprintf("• %s — %s\n", Escape(r.ProjectName), Escape(r.Item.Title)))
+		_, _ = fmt.Fprintf(&s, "• %s — %s\n", Escape(r.ProjectName), Escape(r.Item.Title))
 		keys = append(keys, []tgbotapi.InlineKeyboardButton{{Text: "Buka " + r.Item.Title, CallbackData: strPtr("v2:item:" + r.Item.ID)}})
 	}
 	if len(items) == 0 {
@@ -1265,7 +1249,7 @@ func (b *Bot) list(ctx context.Context) error {
 	s.WriteString("<b>Backlog</b>\n")
 	for _, r := range items {
 		if r.Item.Status == domain.ItemActive {
-			s.WriteString(fmt.Sprintf("• %s — %s\n", Escape(r.ProjectName), Escape(r.Item.Title)))
+			_, _ = fmt.Fprintf(&s, "• %s — %s\n", Escape(r.ProjectName), Escape(r.Item.Title))
 			rows = append(rows, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("✅ "+r.Item.Title, "v1:done:"+r.Item.ID)})
 		}
 	}

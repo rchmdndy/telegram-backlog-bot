@@ -724,21 +724,21 @@ func (s *Store) Backup(ctx context.Context, output string) error {
 		return nil
 	})
 	if err != nil {
-		os.Remove(name)
+		_ = os.Remove(name)
 		return err
 	}
 	if err := os.Chmod(name, 0600); err != nil {
-		os.Remove(name)
+		_ = os.Remove(name)
 		return err
 	}
 	check, err := Open(name)
 	if err != nil {
-		os.Remove(name)
+		_ = os.Remove(name)
 		return err
 	}
 	defer func() { _ = check.Close() }()
 	if err := check.Integrity(ctx); err != nil {
-		os.Remove(name)
+		_ = os.Remove(name)
 		return fmt.Errorf("backup integrity check: %w", err)
 	}
 	return nil

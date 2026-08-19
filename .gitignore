@@ -6,6 +6,6 @@ backups/
 *.db-wal
 coverage.out
 bin/
-backlog-bot
+/backlog-bot
 .superpowers/
 .zcode/

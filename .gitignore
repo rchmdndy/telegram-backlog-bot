@@ -1,0 +1,11 @@
+.env
+/data/
+backups/
+*.db
+*.db-shm
+*.db-wal
+coverage.out
+bin/
+backlog-bot
+.superpowers/
+.zcode/

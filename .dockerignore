@@ -1,0 +1,11 @@
+.git
+.github
+.superpowers
+.zcode
+.env
+*.db
+*.db-shm
+*.db-wal
+backlog-bot
+backups
+coverage.out

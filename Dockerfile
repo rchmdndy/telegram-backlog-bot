@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27rc3-bookworm@sha256:e265a6dd120f4bff9beabc3e2e5e2f3198bdb6a7235cca1562962863980ea7e2 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

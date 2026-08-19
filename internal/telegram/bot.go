@@ -1059,23 +1059,3 @@ func (b *Bot) deleteConfirmV2(ctx context.Context, p []string, updateID int64) e
 	return b.send("Backlog dihapus permanen.", menu())
 }
 
-func (b *Bot) list(ctx context.Context) error {
-	items, err := b.db.ListItems(ctx, true, "")
-	if err != nil {
-		return err
-	}
-	if len(items) == 0 {
-		return b.send("Belum ada backlog aktif.", menu())
-	}
-	var s strings.Builder
-	var rows [][]tgbotapi.InlineKeyboardButton
-	s.WriteString("<b>Backlog</b>\n")
-	for _, r := range items {
-		if r.Item.Status == domain.ItemActive {
-			_, _ = fmt.Fprintf(&s, "• %s — %s\n", Escape(r.ProjectName), Escape(r.Item.Title))
-			rows = append(rows, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("✅ "+r.Item.Title, "v1:done:"+r.Item.ID)})
-		}
-	}
-	rows = append(rows, menu()[0])
-	return b.send(s.String(), rows)
-}

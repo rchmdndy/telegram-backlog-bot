@@ -41,7 +41,7 @@ func main() {
 		log.Error("database startup failed", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	api, err := tgbotapi.NewBotAPI(cfg.BotToken)
 	if err != nil {
 		log.Error("telegram startup failed", "err", err)
@@ -147,7 +147,7 @@ func healthcheck() int {
 	if err != nil {
 		return 1
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err = db.ReadOnlyIntegrity(context.Background()); err != nil {
 		return 1
 	}
@@ -162,7 +162,7 @@ func integrity() int {
 	if err != nil {
 		return 1
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.Integrity(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1

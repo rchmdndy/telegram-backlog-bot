@@ -71,7 +71,8 @@ jobs:
           set -eu
           host_arch="$(docker version --format '{{.Server.Arch}}')"
           case "$host_arch" in
-            amd64|arm64) ;;
+            amd64|x86_64) host_arch=amd64 ;;
+            arm64|aarch64) host_arch=arm64 ;;
             *) echo "unsupported runner architecture: $host_arch" >&2; exit 1 ;;
           esac
           docker build --platform "linux/$host_arch" --tag "backlog-bot:$host_arch" .

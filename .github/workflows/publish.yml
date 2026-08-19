@@ -66,17 +66,24 @@ jobs:
         run: |
           set -eu
           printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
-      - name: Build and smoke-test runnable architecture images
+      - name: Build architecture images and smoke-test runner architecture
         run: |
           set -eu
-          docker build --platform linux/amd64 --tag backlog-bot:amd64 .
-          docker build --platform linux/arm64 --tag backlog-bot:arm64 .
+          host_arch="$(docker version --format '{{.Server.Arch}}')"
+          case "$host_arch" in
+            amd64|arm64) ;;
+            *) echo "unsupported runner architecture: $host_arch" >&2; exit 1 ;;
+          esac
+          docker build --platform "linux/$host_arch" --tag "backlog-bot:$host_arch" .
+          other_arch=amd64
+          [ "$host_arch" = amd64 ] && other_arch=arm64
+          docker build --platform "linux/$other_arch" --tag "backlog-bot:$other_arch" .
           mkdir -p /tmp/backlog-healthcheck
           touch /tmp/backlog-healthcheck/backlog.db
           chmod 666 /tmp/backlog-healthcheck/backlog.db
           now=$(date -u +%FT%T.%NZ)
           printf '{"started_at":"%s","last_success_at":"%s"}' "$now" "$now" > /tmp/backlog-healthcheck/.heartbeat
-          docker run --rm --user 10001:10001 -e HEARTBEAT_PATH=/data/.heartbeat -e DATABASE_PATH=/data/backlog.db -v /tmp/backlog-healthcheck:/data backlog-bot:amd64 healthcheck
+          docker run --rm --user 10001:10001 -e HEARTBEAT_PATH=/data/.heartbeat -e DATABASE_PATH=/data/backlog.db -v /tmp/backlog-healthcheck:/data "backlog-bot:$host_arch" healthcheck
       - name: Scan architecture builds before publish
         run: |
           set -eu

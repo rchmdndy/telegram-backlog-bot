@@ -194,6 +194,8 @@ jobs:
             "$VPS_DEPLOY_USER@$VPS_HOST" \
             "base64 -d | DEPLOY_TAG='$DEPLOY_TAG' bash -s"
           set -euo pipefail
+          stage() { printf 'DEPLOY_STAGE=%s\n' "$1" >&2; }
+          stage preflight
           app=/opt/telegram-backlog-bot
           cd "$app"
           test -f docker-compose.yml
@@ -236,6 +238,7 @@ jobs:
             exit 0
           fi
           "${compose[@]}" config --quiet
+          stage backup
           "${compose[@]}" exec -T bot /backlog-bot backup --output /backups >/dev/null
 
           rollback_needed=1
@@ -254,10 +257,14 @@ jobs:
           }
           trap rollback EXIT
 
+          stage pull
           write_tag "$DEPLOY_TAG"
           "${compose[@]}" pull
+          stage recreate
           "${compose[@]}" up -d --force-recreate
+          stage health
           wait_healthy
+          stage logs
           container=$("${compose[@]}" ps -q bot)
           logs=$(mktemp)
           if ! docker logs "$container" > "$logs" 2>&1; then

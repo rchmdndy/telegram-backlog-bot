@@ -184,7 +184,7 @@ jobs:
           chmod 600 "$key" "$known_hosts"
           ssh-keygen -F "[$VPS_HOST]:$VPS_PORT" -f "$known_hosts" >/dev/null
 
-          ssh \
+          if ! deploy_output=$(base64 -w0 <<'REMOTE' | ssh \
             -i "$key" \
             -p "$VPS_PORT" \
             -o BatchMode=yes \
@@ -192,7 +192,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$known_hosts" \
             "$VPS_DEPLOY_USER@$VPS_HOST" \
-            "DEPLOY_TAG='$DEPLOY_TAG' bash -s" <<'REMOTE'
+            "base64 -d | DEPLOY_TAG='$DEPLOY_TAG' bash -s"
           set -euo pipefail
           app=/opt/telegram-backlog-bot
           cd "$app"
@@ -231,7 +231,10 @@ jobs:
           previous_tag=$(sed -n 's/^IMAGE_TAG=//p' .env)
           valid_image_ref "$previous_tag"
           valid_image_ref "$DEPLOY_TAG"
-          test "$previous_tag" != "$DEPLOY_TAG" || exit 0
+          if [ "$previous_tag" = "$DEPLOY_TAG" ]; then
+            printf 'DEPLOY_OK\n'
+            exit 0
+          fi
           "${compose[@]}" config --quiet
           "${compose[@]}" exec -T bot /backlog-bot backup --output /backups >/dev/null
 
@@ -270,5 +273,11 @@ jobs:
           rm -f "$logs"
           rollback_needed=0
           trap - EXIT
-          echo "Deployed $DEPLOY_TAG."
+          printf 'DEPLOY_OK\n'
           REMOTE
+          ); then
+            printf '%s\n' "$deploy_output" >&2
+            exit 1
+          fi
+          printf '%s\n' "$deploy_output"
+          grep -qx 'DEPLOY_OK' <<< "$deploy_output"

@@ -94,8 +94,10 @@ Telegram Bot API
 
 2. **Telegram adapter**
    - Receives updates using long polling.
-   - Accepts only `chat.type = private`, `from.id = TELEGRAM_AUTHORIZED_USER_ID`, and `chat.id = TELEGRAM_AUTHORIZED_CHAT_ID`; both IDs are mandatory signed 64-bit environment values and startup fails when either is missing or invalid.
-   - Silently ignores unauthorized users and group/channel contexts without revealing whether private data exists.
+   - Requires signed 64-bit `TELEGRAM_AUTHORIZED_USER_ID`; `TELEGRAM_AUTHORIZED_CHAT_ID` is optional for backwards-compatible explicit binding.
+   - If the explicit chat ID is absent, only an exact `/start` from the authorized user in a private chat may atomically bind the chat ID in SQLite; all other updates are silently ignored until binding.
+   - On startup, an explicit chat ID must match any persisted binding; mismatch fails closed and never overwrites the binding.
+   - After binding, accepts only the exact authorized user and stored private chat. Silently ignores unauthorized users and group/channel contexts without revealing whether private data exists.
    - Processes updates serially for the one authorized user.
    - Maps commands, messages, and callback queries into application actions.
    - Uses Telegram HTML parse mode and escapes all user-generated content through one renderer helper.

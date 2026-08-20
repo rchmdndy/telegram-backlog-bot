@@ -11,6 +11,7 @@ type Config struct {
 	BotToken            string
 	AuthorizedUserID    int64
 	AuthorizedChatID    int64
+	AuthorizedChatIDSet bool
 	DatabasePath        string
 	Timezone            *time.Location
 	NotificationHour    int
@@ -30,9 +31,11 @@ func Load() (Config, error) {
 	if c.AuthorizedUserID, err = requiredInt64("TELEGRAM_AUTHORIZED_USER_ID"); err != nil {
 		return c, err
 	}
-	if c.AuthorizedChatID, err = requiredInt64("TELEGRAM_AUTHORIZED_CHAT_ID"); err != nil {
+	c.AuthorizedChatID, err = optionalInt64("TELEGRAM_AUTHORIZED_CHAT_ID")
+	if err != nil {
 		return c, err
 	}
+	c.AuthorizedChatIDSet = os.Getenv("TELEGRAM_AUTHORIZED_CHAT_ID") != ""
 	c.DatabasePath = getenv("DATABASE_PATH", "/data/backlog.db")
 	zone := getenv("TIMEZONE", "Asia/Jakarta")
 	c.Timezone, err = time.LoadLocation(zone)
@@ -61,6 +64,18 @@ func requiredInt64(name string) (int64, error) {
 	if value == "" {
 		return 0, fmt.Errorf("%s is required", name)
 	}
+	return parseInt64(name, value)
+}
+
+func optionalInt64(name string) (int64, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return 0, nil
+	}
+	return parseInt64(name, value)
+}
+
+func parseInt64(name, value string) (int64, error) {
 	n, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be a signed 64-bit integer: %w", name, err)

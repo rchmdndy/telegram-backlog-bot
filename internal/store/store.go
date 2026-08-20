@@ -20,6 +20,7 @@ var migrationFS embed.FS
 
 var ErrDuplicate = errors.New("duplicate")
 var ErrReceiptConflict = errors.New("mutation receipt conflict")
+var ErrAuthorizedChatMismatch = errors.New("authorized chat binding mismatch")
 
 func IsNotFound(err error) bool { return errors.Is(err, sql.ErrNoRows) }
 
@@ -93,6 +94,37 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 func (s *Store) Close() error { return s.DB.Close() }
+
+func (s *Store) GetAuthorizedChat(ctx context.Context, userID int64) (int64, error) {
+	var chatID int64
+	err := s.DB.QueryRowContext(ctx, `SELECT chat_id FROM authorized_chat_binding WHERE authorized_user_id=?`, userID).Scan(&chatID)
+	return chatID, err
+}
+
+// BindAuthorizedChat stores the first chat for a user and never overwrites it.
+func (s *Store) BindAuthorizedChat(ctx context.Context, userID, chatID int64) (int64, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err = tx.ExecContext(ctx, `INSERT INTO authorized_chat_binding(authorized_user_id,chat_id,bound_at) VALUES(?,?,?) ON CONFLICT(authorized_user_id) DO NOTHING`, userID, chatID, time.Now().UnixMicro()); err != nil {
+		return 0, err
+	}
+	var bound int64
+	if err = tx.QueryRowContext(ctx, `SELECT chat_id FROM authorized_chat_binding WHERE authorized_user_id=?`, userID).Scan(&bound); err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	if bound != chatID {
+		return bound, ErrAuthorizedChatMismatch
+	}
+	return bound, nil
+}
+
 func (s *Store) migrate() error {
 	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
 		return err

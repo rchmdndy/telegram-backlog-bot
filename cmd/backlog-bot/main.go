@@ -55,7 +55,11 @@ func main() {
 	heartbeatErr := make(chan error, 1)
 	go func() { heartbeatErr <- heartbeat(ctx, cfg.HeartbeatPath, db, &pulse) }()
 	log.Info("started", "username", api.Self.UserName)
-	bot := telegram.New(api, db, cfg.AuthorizedUserID, cfg.AuthorizedChatID, cfg.RecommendationLimit, cfg.Timezone, log)
+	bot := telegram.New(api, db, cfg.AuthorizedUserID, cfg.AuthorizedChatID, cfg.AuthorizedChatIDSet, cfg.RecommendationLimit, cfg.Timezone, log)
+	if err := bot.InitializeBinding(ctx, cfg.AuthorizedChatIDSet); err != nil {
+		log.Error("authorized chat binding failed", "err", err)
+		os.Exit(1)
+	}
 	bot.Alive = func() { pulse.Store(time.Now().UnixNano()) }
 	s := &scheduler.Scheduler{DB: db, Clock: scheduler.RealClock{}, Sender: bot, Location: cfg.Timezone, Hour: cfg.NotificationHour, Minute: cfg.NotificationMinute, Limit: cfg.RecommendationLimit, Alive: func() { pulse.Store(time.Now().UnixNano()) }}
 	errCh := make(chan error, 2)

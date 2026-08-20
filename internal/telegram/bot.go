@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -20,6 +21,8 @@ import (
 	"github.com/rchmdndy/telegram-backlog-bot/internal/store"
 )
 
+var ErrChatNotBound = errors.New("authorized chat is not bound")
+
 type TelegramAPI interface {
 	Send(tgbotapi.Chattable) (tgbotapi.Message, error)
 	Request(tgbotapi.Chattable) (*tgbotapi.APIResponse, error)
@@ -28,20 +31,52 @@ type TelegramAPI interface {
 }
 
 type Bot struct {
-	api            TelegramAPI
-	db             *store.Store
-	projectSvc     *application.ProjectService
-	backlog        *application.BacklogService
-	userID, chatID int64
-	limit          int
-	loc            *time.Location
-	log            *slog.Logger
-	Alive          func()
-	mu             sync.Mutex
+	api        TelegramAPI
+	db         *store.Store
+	projectSvc *application.ProjectService
+	backlog    *application.BacklogService
+	userID     int64
+	chatID     atomic.Int64
+	bound      atomic.Bool
+	limit      int
+	loc        *time.Location
+	log        *slog.Logger
+	Alive      func()
+	mu         sync.Mutex
 }
 
-func New(api TelegramAPI, db *store.Store, userID, chatID int64, limit int, loc *time.Location, log *slog.Logger) *Bot {
-	return &Bot{api: api, db: db, projectSvc: application.NewProjectService(db), backlog: application.NewBacklogService(db), userID: userID, chatID: chatID, limit: limit, loc: loc, log: log}
+func New(api TelegramAPI, db *store.Store, userID, chatID int64, chatIDSet bool, limit int, loc *time.Location, log *slog.Logger) *Bot {
+	b := &Bot{api: api, db: db, projectSvc: application.NewProjectService(db), backlog: application.NewBacklogService(db), userID: userID, limit: limit, loc: loc, log: log}
+	if chatIDSet {
+		b.chatID.Store(chatID)
+		b.bound.Store(true)
+	}
+	return b
+}
+func (b *Bot) InitializeBinding(ctx context.Context, explicit bool) error {
+	stored, err := b.db.GetAuthorizedChat(ctx, b.userID)
+	if err != nil && !store.IsNotFound(err) {
+		return err
+	}
+	if explicit {
+		if err == nil && stored != b.chatID.Load() {
+			return store.ErrAuthorizedChatMismatch
+		}
+		if err == nil {
+			b.bound.Store(true)
+			return nil
+		}
+		if _, err = b.db.BindAuthorizedChat(ctx, b.userID, b.chatID.Load()); err != nil {
+			return err
+		}
+		b.bound.Store(true)
+		return nil
+	}
+	if err == nil {
+		b.chatID.Store(stored)
+		b.bound.Store(true)
+	}
+	return nil
 }
 func (b *Bot) Poll(ctx context.Context) error {
 	u := tgbotapi.NewUpdate(0)
@@ -69,7 +104,21 @@ func (b *Bot) Poll(ctx context.Context) error {
 		}
 	}
 }
-func (b *Bot) authorized(user, chat int64) bool { return user == b.userID && chat == b.chatID }
+func (b *Bot) authorized(user, chat int64) bool {
+	return b.bound.Load() && user == b.userID && chat == b.chatID.Load()
+}
+func (b *Bot) bindStart(ctx context.Context, m *tgbotapi.Message) error {
+	if b.bound.Load() || m.From == nil || m.Chat == nil || m.Chat.Type != "private" || m.From.ID != b.userID || strings.TrimSpace(m.Text) != "/start" {
+		return nil
+	}
+	chatID, err := b.db.BindAuthorizedChat(ctx, b.userID, m.Chat.ID)
+	if err != nil {
+		return err
+	}
+	b.chatID.Store(chatID)
+	b.bound.Store(true)
+	return nil
+}
 func (b *Bot) handle(ctx context.Context, u tgbotapi.Update) error {
 	if u.UpdateID == 0 {
 		return nil
@@ -86,7 +135,13 @@ func (b *Bot) handle(ctx context.Context, u tgbotapi.Update) error {
 		return err
 	}
 
-	if u.Message == nil || u.Message.From == nil || u.Message.Chat == nil || u.Message.Chat.Type != "private" || !b.authorized(u.Message.From.ID, u.Message.Chat.ID) {
+	if u.Message == nil {
+		return nil
+	}
+	if err := b.bindStart(ctx, u.Message); err != nil {
+		return err
+	}
+	if !b.authorized(messageUserID(u.Message), messageChatID(u.Message)) {
 		return nil
 	}
 	processed, err := b.db.IsProcessed(ctx, int64(u.UpdateID))
@@ -100,6 +155,19 @@ func (b *Bot) handle(ctx context.Context, u tgbotapi.Update) error {
 	return err
 
 }
+func messageUserID(m *tgbotapi.Message) int64 {
+	if m == nil || m.From == nil {
+		return 0
+	}
+	return m.From.ID
+}
+func messageChatID(m *tgbotapi.Message) int64 {
+	if m == nil || m.Chat == nil {
+		return 0
+	}
+	return m.Chat.ID
+}
+
 func (b *Bot) Send(ctx context.Context, text string) (int, error) {
 	return b.sendNotification(ctx, text, nil)
 }
@@ -112,11 +180,14 @@ func (b *Bot) sendNotification(ctx context.Context, text string, keys [][]tgbota
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
+	if !b.bound.Load() {
+		return 0, ErrChatNotBound
+	}
 	keys, err := b.opaqueKeys(keys)
 	if err != nil {
 		return 0, err
 	}
-	msg := tgbotapi.NewMessage(b.chatID, text)
+	msg := tgbotapi.NewMessage(b.chatID.Load(), text)
 	msg.ParseMode = "HTML"
 	if len(keys) > 0 {
 		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keys...)
@@ -126,13 +197,16 @@ func (b *Bot) sendNotification(ctx context.Context, text string, keys [][]tgbota
 }
 
 func (b *Bot) send(text string, keys [][]tgbotapi.InlineKeyboardButton) error {
+	if !b.bound.Load() {
+		return ErrChatNotBound
+	}
 	keys, err := b.opaqueKeys(keys)
 	if err != nil {
 		return err
 	}
 	parts := LimitMessage(text, 4096)
 	for n, part := range parts {
-		m := tgbotapi.NewMessage(b.chatID, part)
+		m := tgbotapi.NewMessage(b.chatID.Load(), part)
 		m.ParseMode = "HTML"
 		if n == len(parts)-1 && len(keys) > 0 {
 			m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keys...)

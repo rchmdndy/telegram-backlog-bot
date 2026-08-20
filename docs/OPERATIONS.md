@@ -14,7 +14,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps
 ```
 
-The image uses no published port, a read-only root filesystem, fixed UID/GID 10001, and a persistent `/data` volume. Do not use a network filesystem for SQLite.
+The image uses no published port, a read-only root filesystem, fixed UID/GID 10001, and a persistent `/data` volume. Do not use a network filesystem for SQLite. `TELEGRAM_AUTHORIZED_USER_ID` is mandatory. `TELEGRAM_AUTHORIZED_CHAT_ID` may be omitted for bootstrap: send exactly `/start` from the authorized user's private chat once; the resulting binding is stored in SQLite. Groups, callbacks, and all other updates are ignored until binding. If an explicit chat ID is configured later and differs from the persisted binding, startup fails closed; it never overwrites the database binding.
 
 ## Backup
 

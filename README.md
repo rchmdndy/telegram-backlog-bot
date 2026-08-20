@@ -12,7 +12,7 @@ go vet ./...
 go build ./cmd/backlog-bot
 ```
 
-Copy `.env.example` to `.env`, supply the bot token and the exact authorized private user/chat IDs, then run the binary. The bot intentionally ignores unauthorized users and all non-private chats.
+Copy `.env.example` to `.env`, supply the bot token and authorized user ID, then run the binary. `TELEGRAM_AUTHORIZED_CHAT_ID` is optional for explicit binding; when omitted, the first exact `/start` from that user in a private chat binds and persists the chat ID in SQLite. If an explicit ID differs from a persisted binding, startup fails closed. The bot intentionally ignores unauthorized users, callbacks, non-`/start` updates before binding, and all non-private chats.
 
 ## VPS deployment
 

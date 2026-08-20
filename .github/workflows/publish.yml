@@ -239,7 +239,7 @@ jobs:
           fi
           "${compose[@]}" config --quiet
           stage backup
-          "${compose[@]}" exec -T bot /backlog-bot backup --output /backups >/dev/null
+          "${compose[@]}" exec -T bot /backlog-bot backup --output /backups </dev/null >/dev/null
 
           rollback_needed=1
           rollback() {

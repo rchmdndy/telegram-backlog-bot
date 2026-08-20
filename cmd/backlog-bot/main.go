@@ -12,7 +12,9 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/rchmdndy/telegram-backlog-bot/internal/application"
 	"github.com/rchmdndy/telegram-backlog-bot/internal/config"
+	"github.com/rchmdndy/telegram-backlog-bot/internal/repository"
 	"github.com/rchmdndy/telegram-backlog-bot/internal/scheduler"
 	"github.com/rchmdndy/telegram-backlog-bot/internal/store"
 	"github.com/rchmdndy/telegram-backlog-bot/internal/telegram"
@@ -42,6 +44,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = db.Close() }()
+	repos := repository.New(db.DB)
 	api, err := tgbotapi.NewBotAPI(cfg.BotToken)
 	if err != nil {
 		log.Error("telegram startup failed", "err", err)
@@ -55,13 +58,13 @@ func main() {
 	heartbeatErr := make(chan error, 1)
 	go func() { heartbeatErr <- heartbeat(ctx, cfg.HeartbeatPath, db, &pulse) }()
 	log.Info("started", "username", api.Self.UserName)
-	bot := telegram.New(api, db, cfg.AuthorizedUserID, cfg.AuthorizedChatID, cfg.AuthorizedChatIDSet, cfg.RecommendationLimit, cfg.Timezone, log)
+	bot := telegram.New(api, repos, cfg.AuthorizedUserID, cfg.AuthorizedChatID, cfg.AuthorizedChatIDSet, cfg.RecommendationLimit, cfg.Timezone, log)
 	if err := bot.InitializeBinding(ctx, cfg.AuthorizedChatIDSet); err != nil {
 		log.Error("authorized chat binding failed", "err", err)
 		os.Exit(1)
 	}
 	bot.Alive = func() { pulse.Store(time.Now().UnixNano()) }
-	s := &scheduler.Scheduler{DB: db, Clock: scheduler.RealClock{}, Sender: bot, Location: cfg.Timezone, Hour: cfg.NotificationHour, Minute: cfg.NotificationMinute, Limit: cfg.RecommendationLimit, Alive: func() { pulse.Store(time.Now().UnixNano()) }}
+	s := &scheduler.Scheduler{Notifications: application.NewNotificationService(repos), Clock: scheduler.RealClock{}, Sender: bot, Location: cfg.Timezone, Hour: cfg.NotificationHour, Minute: cfg.NotificationMinute, Limit: cfg.RecommendationLimit, Alive: func() { pulse.Store(time.Now().UnixNano()) }}
 	errCh := make(chan error, 2)
 	go func() { errCh <- bot.Poll(ctx) }()
 	go func() { errCh <- s.Run(ctx) }()

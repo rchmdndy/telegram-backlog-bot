@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/rchmdndy/telegram-backlog-bot/internal/repository"
 	"github.com/rchmdndy/telegram-backlog-bot/internal/store"
 )
 
@@ -30,7 +31,7 @@ func testBot(t *testing.T, chatID int64, explicit bool) (*Bot, *store.Store, *fa
 		t.Fatal(err)
 	}
 	api := &fakeAPI{}
-	b := New(api, db, 7, chatID, explicit, 10, time.UTC, slog.Default())
+	b := New(api, repository.New(db.DB), 7, chatID, explicit, 10, time.UTC, slog.Default())
 	return b, db, api
 }
 func message(updateID int, user, chat int64, typ, text string) tgbotapi.Update {
@@ -59,7 +60,7 @@ func TestBootstrapBindsOnlyPrivateExactStart(t *testing.T) {
 	if len(api.sent) != 1 {
 		t.Fatalf("start responses = %d", len(api.sent))
 	}
-	if got, err := db.GetAuthorizedChat(ctx, 7); err != nil || got != 12 {
+	if got, err := repository.NewConversationRepository(db.DB).GetAuthorizedChat(ctx, 7); err != nil || got != 12 {
 		t.Fatalf("binding = %d, %v", got, err)
 	}
 }
@@ -83,7 +84,7 @@ func TestBootstrapPersistsAcrossRestartAndRejectsMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := &fakeAPI{}
-	b := New(api, db, 7, 0, false, 10, time.UTC, slog.Default())
+	b := New(api, repository.New(db.DB), 7, 0, false, 10, time.UTC, slog.Default())
 	if err := b.handle(context.Background(), message(1, 7, 12, "private", "/start")); err != nil {
 		t.Fatal(err)
 	}
@@ -95,14 +96,14 @@ func TestBootstrapPersistsAcrossRestartAndRejectsMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	restarted := New(&fakeAPI{}, db, 7, 0, false, 10, time.UTC, slog.Default())
+	restarted := New(&fakeAPI{}, repository.New(db.DB), 7, 0, false, 10, time.UTC, slog.Default())
 	if err := restarted.InitializeBinding(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	if !restarted.authorized(7, 12) || restarted.authorized(7, 13) {
 		t.Fatal("restart authorization mismatch")
 	}
-	explicit := New(&fakeAPI{}, db, 7, 13, true, 10, time.UTC, slog.Default())
+	explicit := New(&fakeAPI{}, repository.New(db.DB), 7, 13, true, 10, time.UTC, slog.Default())
 	if err := explicit.InitializeBinding(context.Background(), true); err == nil {
 		t.Fatal("expected explicit mismatch")
 	}

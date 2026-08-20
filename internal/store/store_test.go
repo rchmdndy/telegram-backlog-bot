@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"github.com/rchmdndy/telegram-backlog-bot/internal/domain"
+	"github.com/rchmdndy/telegram-backlog-bot/internal/repository"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,25 +19,25 @@ func TestStoreCRUDAndPersistence(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 	p := domain.Project{ID: domain.NewID(), Name: "Work", NormalizedName: domain.NormalizeProjectName("Work"), Status: domain.ProjectActive, CreatedAt: now, UpdatedAt: now}
-	if err = s.CreateProject(ctx, p); err != nil {
+	if err = repository.NewProjectRepository(s.DB).CreateProject(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	items, err := s.ListProjects(ctx, false)
+	items, err := repository.NewProjectRepository(s.DB).ListProjects(ctx, false)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("projects: %v %d", err, len(items))
 	}
 	i := domain.BacklogItem{ID: domain.NewID(), ProjectID: p.ID, Title: "Ship", Quadrant: domain.Q1, DeadlineDate: now.Format("2006-01-02"), Status: domain.ItemActive, CreatedAt: now, UpdatedAt: now}
-	if err = s.CreateItem(ctx, i); err != nil {
+	if err = repository.NewBacklogRepository(s.DB).CreateItem(ctx, i); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.ListItems(ctx, false, "")
+	got, err := repository.NewBacklogRepository(s.DB).ListItems(ctx, false, "")
 	if err != nil || len(got) != 1 {
 		t.Fatalf("items: %v %d", err, len(got))
 	}
-	if ok, err := s.MarkProcessed(ctx, 42); err != nil || !ok {
+	if ok, err := repository.NewConversationRepository(s.DB).MarkProcessed(ctx, 42); err != nil || !ok {
 		t.Fatalf("processed: %v %v", ok, err)
 	}
-	if ok, err := s.MarkProcessed(ctx, 42); err != nil || ok {
+	if ok, err := repository.NewConversationRepository(s.DB).MarkProcessed(ctx, 42); err != nil || ok {
 		t.Fatalf("duplicate processed: %v %v", ok, err)
 	}
 	if err = s.Close(); err != nil {
@@ -64,7 +65,7 @@ func TestReadOnlyIntegrityDoesNotChangeWriterConnection(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	project := domain.Project{ID: domain.NewID(), Name: "Writable", NormalizedName: domain.NormalizeProjectName("Writable"), Status: domain.ProjectActive, CreatedAt: now, UpdatedAt: now}
-	if err := s.CreateProject(ctx, project); err != nil {
+	if err := repository.NewProjectRepository(s.DB).CreateProject(ctx, project); err != nil {
 		t.Fatalf("writer connection became read-only: %v", err)
 	}
 }
@@ -78,7 +79,7 @@ func TestBackupRestoreIntegration(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	p := domain.Project{ID: domain.NewID(), Name: "Restore", NormalizedName: domain.NormalizeProjectName("Restore"), Status: domain.ProjectActive, CreatedAt: now, UpdatedAt: now}
-	if err := s.CreateProject(ctx, p); err != nil {
+	if err := repository.NewProjectRepository(s.DB).CreateProject(ctx, p); err != nil {
 		t.Fatal(err)
 	}
 	backupDir := t.TempDir()
@@ -115,7 +116,7 @@ func TestBackupRestoreIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = restored.Close() }()
-	got, err := restored.GetProject(ctx, p.ID)
+	got, err := repository.NewProjectRepository(restored.DB).GetProject(ctx, p.ID)
 	if err != nil || got.Name != p.Name {
 		t.Fatalf("restored project: %v %v", got, err)
 	}

@@ -42,7 +42,14 @@ VPS_HOST_KEY
 
 The value in `VPS_HOST` and `VPS_PORT` must match the host and port fields in `VPS_HOST_KEY` exactly. The workflow pins that key with strict OpenSSH checking, makes an online backup, pulls the published image, recreates the container, waits for Docker health, and rejects startup/fatal error logs. If that sequence fails, it restores the previously configured image reference and reports the deployment failure.
 
-The production Compose file, `.env`, and `backups` directory must remain at `/opt/telegram-backlog-bot`. The deployment never runs `docker compose down`, deletes a volume, or copies the live SQLite database.
+The production Compose file, `.env`, and `backups` directory must remain at `/opt/telegram-backlog-bot`. The deploy user must own the root `.env` file with mode `0600`, because the workflow changes only `IMAGE_TAG` atomically:
+
+```sh
+sudo chown botdeploy:botdeploy /opt/telegram-backlog-bot/.env
+sudo chmod 600 /opt/telegram-backlog-bot/.env
+```
+
+The deployment never runs `docker compose down`, deletes a volume, or copies the live SQLite database.
 
 The GHCR package is currently public, so Docker can pull it without VPS registry credentials. If package visibility changes to private, authenticate the VPS to `ghcr.io` with a read-only package token before enabling deployment.
 

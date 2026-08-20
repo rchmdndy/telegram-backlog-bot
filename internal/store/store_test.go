@@ -52,6 +52,23 @@ func TestStoreCRUDAndPersistence(t *testing.T) {
 	}
 }
 
+func TestReadOnlyIntegrityDoesNotChangeWriterConnection(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "probe.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.ReadOnlyIntegrity(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	project := domain.Project{ID: domain.NewID(), Name: "Writable", NormalizedName: domain.NormalizeProjectName("Writable"), Status: domain.ProjectActive, CreatedAt: now, UpdatedAt: now}
+	if err := s.CreateProject(ctx, project); err != nil {
+		t.Fatalf("writer connection became read-only: %v", err)
+	}
+}
+
 func TestBackupRestoreIntegration(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "source.db")

@@ -698,22 +698,12 @@ func (s *Store) Integrity(ctx context.Context) error {
 	return nil
 }
 func (s *Store) ReadOnlyIntegrity(ctx context.Context) error {
-	conn, err := s.DB.Conn(ctx)
+	probe, err := OpenReadOnly(s.Path)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = conn.Close() }()
-	if _, err = conn.ExecContext(ctx, `PRAGMA query_only=ON`); err != nil {
-		return err
-	}
-	var result string
-	if err = conn.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&result); err != nil {
-		return err
-	}
-	if result != "ok" {
-		return fmt.Errorf("integrity check: %s", result)
-	}
-	return nil
+	defer func() { _ = probe.Close() }()
+	return probe.Integrity(ctx)
 }
 func (s *Store) Backup(ctx context.Context, output string) error {
 	if output == "" {

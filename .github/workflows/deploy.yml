@@ -1,0 +1,208 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows: ["Publish GHCR"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  verify:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      packages: read
+    outputs:
+      commit: ${{ steps.manifest.outputs.commit }}
+      digest: ${{ steps.manifest.outputs.digest }}
+    steps:
+      - name: Download published manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: published-manifest
+          path: ${{ runner.temp }}/upstream
+          run-id: ${{ github.event.workflow_run.id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+      - name: Validate published manifest
+        id: manifest
+        env:
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          UPSTREAM_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -eu
+          test "$(find "$RUNNER_TEMP/upstream" -type f | wc -l)" -eq 1
+          manifest="$RUNNER_TEMP/upstream/published-manifest"
+          test -f "$manifest"
+          test "$(wc -l < "$manifest")" -eq 3
+          run_id=$(sed -n 's/^run_id=//p' "$manifest")
+          commit=$(sed -n 's/^commit=//p' "$manifest")
+          digest=$(sed -n 's/^digest=//p' "$manifest")
+          test "$run_id" = "$UPSTREAM_RUN_ID"
+          test "$commit" = "$UPSTREAM_SHA"
+          test -z "$(sed -n '/^\(run_id\|commit\|digest\)=/!p' "$manifest")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'commit=%s\ndigest=%s\n' "$commit" "$digest" >> "$GITHUB_OUTPUT"
+      - name: Set up Buildx for registry verification
+        uses: docker/setup-buildx-action@6524bf65af31da8d45b59e8c27de4bd072b392f5
+      - name: Verify published registry manifest
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          COMMIT: ${{ steps.manifest.outputs.commit }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+        run: |
+          set -eu
+          resolved=$(docker buildx imagetools inspect "$IMAGE:sha-$COMMIT" --format '{{.Manifest.Digest}}' | tr -d '\r\n')
+          test "$resolved" = "$DIGEST"
+          current_main=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | cut -f1)
+          test "$current_main" = "$COMMIT"
+
+  deploy:
+    needs: verify
+    if: needs.verify.result == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    permissions: {}
+    env:
+      DEPLOY_TAG: sha-${{ needs.verify.outputs.commit }}@${{ needs.verify.outputs.digest }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_DEPLOY_USER: ${{ secrets.VPS_DEPLOY_USER }}
+      VPS_DEPLOY_KEY: ${{ secrets.VPS_DEPLOY_KEY }}
+      VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+    steps:
+      - name: Deploy published image
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$VPS_PORT" in
+            ''|*[!0-9]*) echo 'VPS_PORT must be numeric' >&2; exit 1 ;;
+          esac
+          if [[ ! "$DEPLOY_TAG" =~ ^sha-[0-9a-f]{40}@sha256:[0-9a-f]{64}$ ]]; then
+            echo 'invalid published image reference' >&2
+            exit 1
+          fi
+
+
+          key=$(mktemp)
+          known_hosts=$(mktemp)
+          cleanup() { rm -f "$key" "$known_hosts"; }
+          trap cleanup EXIT
+          printf '%s\n' "$VPS_DEPLOY_KEY" > "$key"
+          printf '%s\n' "$VPS_HOST_KEY" > "$known_hosts"
+          chmod 600 "$key" "$known_hosts"
+          ssh-keygen -F "[$VPS_HOST]:$VPS_PORT" -f "$known_hosts" >/dev/null
+
+          if ! deploy_output=$(base64 -w0 <<'REMOTE' | ssh \
+            -i "$key" \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts" \
+            "$VPS_DEPLOY_USER@$VPS_HOST" \
+            "base64 -d | DEPLOY_TAG='$DEPLOY_TAG' bash -s"
+          set -euo pipefail
+          stage() { printf 'DEPLOY_STAGE=%s\n' "$1" >&2; }
+          stage preflight
+          app=/opt/telegram-backlog-bot
+          cd "$app"
+          test -f docker-compose.yml
+          test -f .env
+          test -d backups
+          compose=(docker compose --env-file .env)
+
+          valid_image_ref() {
+            [[ "$1" =~ ^sha-[0-9a-f]{40}@sha256:[0-9a-f]{64}$ ]]
+          }
+          write_tag() {
+            local tag=$1 tmp
+            tmp=$(mktemp .env.XXXXXX)
+            chmod --reference=.env "$tmp"
+            awk -v tag="$tag" '
+              /^IMAGE_TAG=/ { print "IMAGE_TAG=" tag; found=1; next }
+              { print }
+              END { exit !found }
+            ' .env > "$tmp"
+            mv "$tmp" .env
+          }
+          wait_healthy() {
+            local container status
+            container=$("${compose[@]}" ps -q bot)
+            test -n "$container"
+            for _ in $(seq 1 18); do
+              status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+              [ "$status" = healthy ] && return 0
+              [ "$status" = unhealthy ] && return 1
+              sleep 10
+            done
+            return 1
+          }
+
+          previous_tag=$(sed -n 's/^IMAGE_TAG=//p' .env)
+          valid_image_ref "$previous_tag"
+          valid_image_ref "$DEPLOY_TAG"
+          if [ "$previous_tag" = "$DEPLOY_TAG" ]; then
+            printf 'DEPLOY_OK\n'
+            exit 0
+          fi
+          "${compose[@]}" config --quiet
+          stage backup
+          "${compose[@]}" exec -T bot /backlog-bot backup --output /backups </dev/null >/dev/null
+
+          rollback_needed=1
+          rollback() {
+            local status=$?
+            trap - EXIT
+            if [ "$rollback_needed" = 1 ]; then
+              echo 'Deployment failed; restoring the previous image.' >&2
+              if write_tag "$previous_tag" && "${compose[@]}" pull && "${compose[@]}" up -d --force-recreate && wait_healthy; then
+                echo 'Rollback completed.' >&2
+              else
+                echo 'Rollback failed; manual intervention is required.' >&2
+              fi
+            fi
+            exit "$status"
+          }
+          trap rollback EXIT
+
+          stage pull
+          write_tag "$DEPLOY_TAG"
+          "${compose[@]}" pull
+          stage recreate
+          "${compose[@]}" up -d --force-recreate
+          stage health
+          wait_healthy
+          stage logs
+          container=$("${compose[@]}" ps -q bot)
+          logs=$(mktemp)
+          if ! docker logs "$container" > "$logs" 2>&1; then
+            rm -f "$logs"
+            echo 'Unable to read new container logs.' >&2
+            exit 1
+          fi
+          if grep -Eiq '"level":"ERROR"|panic|fatal|readonly database|heartbeat stopped|runtime loop stopped|database startup failed|telegram startup failed|authorized chat binding failed' "$logs"; then
+            rm -f "$logs"
+            echo 'New container emitted an error log.' >&2
+            exit 1
+          fi
+          rm -f "$logs"
+          rollback_needed=0
+          trap - EXIT
+          printf 'DEPLOY_OK\n'
+          REMOTE
+          ); then
+            printf '%s\n' "$deploy_output" >&2
+            exit 1
+          fi
+          printf '%s\n' "$deploy_output"
+          grep -qx 'DEPLOY_OK' <<< "$deploy_output"

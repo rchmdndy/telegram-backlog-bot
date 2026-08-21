@@ -22,7 +22,7 @@ The image uses no published port, a read-only root filesystem, fixed UID/GID 100
 
 ## Continuous deployment
 
-`Publish GHCR` deploys automatically only after its publish job succeeds for a push to `main`. It uses the published `sha-<40-character-commit-SHA>@sha256:<manifest-digest>` image reference, so production is pinned to the exact manifest built by that workflow rather than `latest`.
+`Publish GHCR` and `Deploy production` are separate Actions. A successful push to `main` first builds, scans, publishes, attests, and records the exact commit/digest manifest artifact. `Deploy production` then runs separately, reads that artifact from the exact publish run, verifies its commit against `workflow_run.head_sha`, and confirms that the GHCR `sha-<commit>` tag still resolves to the recorded manifest digest before it receives production secrets or opens SSH. Production uses `sha-<40-character-commit-SHA>@sha256:<manifest-digest>`, never `latest`.
 
 Create a GitHub Environment named `production` and add these **Environment secrets**:
 
@@ -53,7 +53,7 @@ The deployment never runs `docker compose down`, deletes a volume, or copies the
 
 The GHCR package is currently public, so Docker can pull it without VPS registry credentials. If package visibility changes to private, authenticate the VPS to `ghcr.io` with a read-only package token before enabling deployment.
 
-SQLite migrations are forward-only. Rolling an image back does not reverse a schema migration, so schema-changing releases require a verified compatible backup and restore procedure before deployment.
+SQLite migrations are forward-only. Rolling an image back does not reverse a schema migration, so schema-changing releases require a verified compatible backup and restore procedure before deployment. Protect `main` and both workflow files: `workflow_run` deployment reads its workflow from the default branch and can access the `production` Environment after metadata verification.
 
 ## Backup
 

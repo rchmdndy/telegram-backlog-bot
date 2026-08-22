@@ -99,6 +99,7 @@ func notificationKeyboard(date string, empty bool) (string, error) {
 	} else {
 		keys = append([][]notificationButton{{{Text: "✅ Tandai Selesai", CallbackData: "v2:notificationitems:" + date}}}, keys...)
 	}
+	keys = append(keys, []notificationButton{{Text: "🏠 Menu Utama", CallbackData: "v2:menu"}})
 	encoded, err := json.Marshal(keys)
 	return string(encoded), err
 }

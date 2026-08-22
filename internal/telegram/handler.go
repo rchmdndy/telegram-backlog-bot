@@ -111,7 +111,18 @@ func (h *Handler) saveDraft(ctx context.Context, flow, step string, d map[string
 			return h.bot.send("Wizard sudah berubah. Buka menu terbaru.", menu())
 		}
 	}
+	if !textInputStep(flow, step) {
+		keys = withHome(keys)
+	}
 	return h.bot.send(prompt, keys)
+}
+func textInputStep(flow, step string) bool {
+	return (flow == "project" && (step == "name" || step == "description")) ||
+		(flow == "backlog" && (step == "title" || step == "date" || step == "notes")) ||
+		(flow == "edit" && step == "input")
+}
+func (h *Handler) screen(text string, keys [][]tgbotapi.InlineKeyboardButton) error {
+	return h.bot.send(text, withHome(keys))
 }
 func (h *Handler) startProject(ctx context.Context) error {
 	return h.saveDraft(ctx, "project", "name", map[string]string{}, domain.NewID(), 1, "Masukkan nama project baru.", cancelKeys())
@@ -167,7 +178,7 @@ func (h *Handler) focus(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return h.bot.send(recommendation.Render(items, now), nil)
+	return h.screen(recommendation.Render(items, now), nil)
 }
 func (h *Handler) callbackV2(ctx context.Context, q *tgbotapi.CallbackQuery, updateID int64) error {
 	p := strings.Split(q.Data, ":")
@@ -253,7 +264,7 @@ func (h *Handler) callbackV2(ctx context.Context, q *tgbotapi.CallbackQuery, upd
 		}
 		if e != nil {
 			if errors.Is(e, domain.ErrConflict) && p[1] == "restoreconfirm" {
-				return h.bot.send("Nama project sudah dipakai. Pilih Rename atau batalkan.", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Rename", "v2:editproject:"+p[2]+":name")}, {tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:menu")}})
+				return h.screen("Nama project sudah dipakai. Pilih Rename atau batalkan.", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Rename", "v2:editproject:"+p[2]+":name")}, {tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:menu")}})
 			}
 			return h.bot.send("Operasi ditolak karena data sudah berubah atau project archived.", menu())
 		}
@@ -428,7 +439,7 @@ func (h *Handler) projectDetail(ctx context.Context, id string) error {
 		keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("Pulihkan", "v2:restore:"+id+":"+callbackNonce())})
 	}
 	keys = append(keys, menu()[2])
-	return h.bot.send(text, keys)
+	return h.screen(text, keys)
 }
 func (h *Handler) projectsPage(ctx context.Context, page int, archived bool) error {
 	ps, e := h.projectSvc.ListPage(ctx, archived, 8, page*8)
@@ -460,7 +471,7 @@ func (h *Handler) projectsPage(ctx context.Context, page int, archived bool) err
 		keys = append(keys, nav)
 	}
 	keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("Archived / Aktif", "v2:projects:0:"+map[bool]string{true: "0", false: "1"}[archived])}, menu()[0], menu()[2])
-	return h.bot.send(s.String(), keys)
+	return h.screen(s.String(), keys)
 }
 func (h *Handler) notificationItems(ctx context.Context, date string) error {
 	items, err := h.notifier.Items(ctx, date)
@@ -480,7 +491,7 @@ func (h *Handler) notificationItems(ctx context.Context, date string) error {
 		}
 	}
 	keys = append(keys, menu()[1])
-	return h.bot.send(text.String(), keys)
+	return h.screen(text.String(), keys)
 }
 
 func (h *Handler) listPage(ctx context.Context, page int, filter domain.ItemFilter) error {
@@ -512,7 +523,7 @@ func (h *Handler) listPage(ctx context.Context, page int, filter domain.ItemFilt
 	keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("Filter Project", "v2:filter:project:0"), tgbotapi.NewInlineKeyboardButtonData("Filter Status", "v2:filter:status"), tgbotapi.NewInlineKeyboardButtonData("Filter Deadline", "v2:filter:deadline")})
 	keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("Filter Prioritas", "v2:filter:quadrant")})
 	keys = append(keys, menu()[1], menu()[2])
-	return h.bot.send(s.String(), keys)
+	return h.screen(s.String(), keys)
 }
 func (h *Handler) projectItems(ctx context.Context, projectID string, page int) error {
 	p, err := h.projectSvc.Get(ctx, projectID)
@@ -540,7 +551,7 @@ func (h *Handler) projectItems(ctx context.Context, projectID string, page int) 
 		keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("›", "v2:projectitems:"+projectID+":"+strconv.Itoa(page+1))})
 	}
 	keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("Kembali", "v2:project:"+projectID)})
-	return h.bot.send(s.String(), keys)
+	return h.screen(s.String(), keys)
 }
 func (h *Handler) filterMenu(ctx context.Context, p []string) error {
 	if len(p) < 3 {
@@ -567,13 +578,13 @@ func (h *Handler) filterMenu(ctx context.Context, p []string) error {
 		if len(nav) > 0 {
 			keys = append(keys, nav)
 		}
-		return h.bot.send("Pilih project:", keys)
+		return h.screen("Pilih project:", keys)
 	case "status":
-		return h.bot.send("Pilih status:", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Aktif", "v2:listfilter:status:active")}, {tgbotapi.NewInlineKeyboardButtonData("Selesai", "v2:listfilter:status:done")}})
+		return h.screen("Pilih status:", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Aktif", "v2:listfilter:status:active")}, {tgbotapi.NewInlineKeyboardButtonData("Selesai", "v2:listfilter:status:done")}})
 	case "deadline":
-		return h.bot.send("Pilih deadline:", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Terlambat", "v2:listfilter:deadline:0")}, {tgbotapi.NewInlineKeyboardButtonData("Hari ini", "v2:listfilter:deadline:1")}, {tgbotapi.NewInlineKeyboardButtonData("Mendatang", "v2:listfilter:deadline:2")}})
+		return h.screen("Pilih deadline:", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Terlambat", "v2:listfilter:deadline:0")}, {tgbotapi.NewInlineKeyboardButtonData("Hari ini", "v2:listfilter:deadline:1")}, {tgbotapi.NewInlineKeyboardButtonData("Mendatang", "v2:listfilter:deadline:2")}})
 	case "quadrant":
-		return h.bot.send("Pilih prioritas:", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Q1", "v2:listfilter:quadrant:q1")}, {tgbotapi.NewInlineKeyboardButtonData("Q2", "v2:listfilter:quadrant:q2")}, {tgbotapi.NewInlineKeyboardButtonData("Q3", "v2:listfilter:quadrant:q3")}, {tgbotapi.NewInlineKeyboardButtonData("Q4", "v2:listfilter:quadrant:q4")}})
+		return h.screen("Pilih prioritas:", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Q1", "v2:listfilter:quadrant:q1")}, {tgbotapi.NewInlineKeyboardButtonData("Q2", "v2:listfilter:quadrant:q2")}, {tgbotapi.NewInlineKeyboardButtonData("Q3", "v2:listfilter:quadrant:q3")}, {tgbotapi.NewInlineKeyboardButtonData("Q4", "v2:listfilter:quadrant:q4")}})
 	}
 	return h.stale(ctx)
 }
@@ -722,7 +733,7 @@ func (h *Handler) moveProjectCallback(ctx context.Context, p []string) error {
 		}
 	}
 	keys = append(keys, cancelKeys()[0])
-	return h.bot.send("Pilih project baru.", keys)
+	return h.screen("Pilih project baru.", keys)
 }
 
 func (h *Handler) editValueCallback(ctx context.Context, p []string) error {
@@ -814,7 +825,7 @@ func (h *Handler) itemDetail(ctx context.Context, id string) error {
 			keys = append(keys, []tgbotapi.InlineKeyboardButton{{Text: "✅ Tandai Selesai", CallbackData: strPtr("v2:complete:" + id + ":" + callbackNonce())}})
 		}
 		keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("Kembali ke project", "v2:project:"+p.ID)})
-		return h.bot.send(text+"\n\nProject archived: detail read-only; hanya penyelesaian diizinkan.", keys)
+		return h.screen(text+"\n\nProject archived: detail read-only; hanya penyelesaian diizinkan.", keys)
 	}
 	if i.Status == domain.ItemActive {
 		keys = append(keys, []tgbotapi.InlineKeyboardButton{{Text: "✅ Tandai Selesai", CallbackData: strPtr("v2:complete:" + id + ":" + callbackNonce())}})
@@ -822,7 +833,7 @@ func (h *Handler) itemDetail(ctx context.Context, id string) error {
 		keys = append(keys, []tgbotapi.InlineKeyboardButton{{Text: "Buka Kembali", CallbackData: strPtr("v2:reopen:" + id + ":" + callbackNonce())}})
 	}
 	keys = append(keys, []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("Edit", "v2:edititem:"+id+":all"), tgbotapi.NewInlineKeyboardButtonData("Hapus", "v2:delete:"+id+":"+callbackNonce())}, menu()[1])
-	return h.bot.send(text, keys)
+	return h.screen(text, keys)
 }
 func (h *Handler) actionV2(ctx context.Context, action string, p []string, updateID int64) error {
 	if len(p) != 4 {
@@ -835,20 +846,20 @@ func (h *Handler) actionV2(ctx context.Context, action string, p []string, updat
 		if e != nil {
 			return h.stale(ctx)
 		}
-		return h.bot.send(fmt.Sprintf("<b>Preview arsip project</b>\nNama: %s\nBacklog tetap tersimpan dan menjadi read-only.", Escape(pr.Name)), [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Ya, arsipkan", "v2:archiveconfirm:"+id+":"+n+":"+pr.UpdatedAt.Format(time.RFC3339Nano)), tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:menu")}})
+		return h.screen(fmt.Sprintf("<b>Preview arsip project</b>\nNama: %s\nBacklog tetap tersimpan dan menjadi read-only.", Escape(pr.Name)), [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Ya, arsipkan", "v2:archiveconfirm:"+id+":"+n+":"+pr.UpdatedAt.Format(time.RFC3339Nano)), tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:menu")}})
 	case "restore":
 		pr, e := h.projectSvc.Get(ctx, id)
 		if e != nil {
 			return h.stale(ctx)
 		}
-		return h.bot.send(fmt.Sprintf("<b>Preview pulihkan project</b>\nNama: %s", Escape(pr.Name)), [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Ya, pulihkan", "v2:restoreconfirm:"+id+":"+n+":"+pr.UpdatedAt.Format(time.RFC3339Nano)), tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:menu")}})
+		return h.screen(fmt.Sprintf("<b>Preview pulihkan project</b>\nNama: %s", Escape(pr.Name)), [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Ya, pulihkan", "v2:restoreconfirm:"+id+":"+n+":"+pr.UpdatedAt.Format(time.RFC3339Nano)), tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:menu")}})
 	case "complete", "reopen":
 		i, e := h.backlog.Get(ctx, id)
 		if e != nil {
 			return h.stale(ctx)
 		}
 		label := map[string]string{"complete": "Tandai selesai", "reopen": "Buka kembali"}[action]
-		return h.bot.send(fmt.Sprintf("<b>Preview perubahan</b>\nItem: %s\nAksi: %s", Escape(i.Title), label), [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Konfirmasi", "v2:"+action+"confirm:"+id+":"+n+":"+i.UpdatedAt.Format(time.RFC3339Nano)), tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:menu")}})
+		return h.screen(fmt.Sprintf("<b>Preview perubahan</b>\nItem: %s\nAksi: %s", Escape(i.Title), label), [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Konfirmasi", "v2:"+action+"confirm:"+id+":"+n+":"+i.UpdatedAt.Format(time.RFC3339Nano)), tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:menu")}})
 	}
 	return h.stale(ctx)
 }
@@ -860,7 +871,7 @@ func (h *Handler) deleteV2(ctx context.Context, p []string) error {
 	if e != nil {
 		return h.stale(ctx)
 	}
-	return h.bot.send("Hapus item ini permanen?", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Ya, hapus permanen", "v2:deleteconfirm:"+p[2]+":"+p[3]+":"+i.UpdatedAt.Format(time.RFC3339Nano))}, menu()[1]})
+	return h.screen("Hapus item ini permanen?", [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Ya, hapus permanen", "v2:deleteconfirm:"+p[2]+":"+p[3]+":"+i.UpdatedAt.Format(time.RFC3339Nano))}, menu()[1]})
 }
 func (h *Handler) deleteConfirmV2(ctx context.Context, p []string, updateID int64) error {
 	if len(p) != 5 {

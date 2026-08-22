@@ -249,6 +249,12 @@ func menu() [][]tgbotapi.InlineKeyboardButton {
 func cancelKeys() [][]tgbotapi.InlineKeyboardButton {
 	return [][]tgbotapi.InlineKeyboardButton{{tgbotapi.NewInlineKeyboardButtonData("Batal", "v2:cancel")}}
 }
+func homeKeys() []tgbotapi.InlineKeyboardButton {
+	return []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData("🏠 Menu Utama", "v2:menu")}
+}
+func withHome(keys [][]tgbotapi.InlineKeyboardButton) [][]tgbotapi.InlineKeyboardButton {
+	return append(keys, homeKeys())
+}
 
 func callbackNonce() string {
 	var raw [6]byte
